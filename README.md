@@ -78,6 +78,7 @@ A professional 3D posing and lighting environment running entirely within a Comf
 *   **Precision Framing**: Integrated camera radar and Zoom controls with a clean viewport frame visualization.
 *   **Natural Language Prompts**: Automatically generates descriptive lighting prompts for seamless scene integration.
 *   **Tracing Support**: Load background reference images for precise character alignment.
+*   **Pose PNG Import**: Import PNG pose images directly from the Import button for extraction and further VNCCS tuning.
 
 👉 **[Detailed Usage Guide](docs/VNCCS_POSE_STUDIO_USAGE.md)**
 
@@ -85,4 +86,3 @@ A professional 3D posing and lighting environment running entirely within a Comf
 
 1. Copy the ComfyUI_VNCCS_Utils folder into your ComfyUI custom_nodes directory.
 2. Restart ComfyUI.
-
