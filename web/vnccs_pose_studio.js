@@ -3765,6 +3765,7 @@ class PoseStudioWidget {
         this.poses = [{}];  // Array of pose data
         this.activeTab = 0;
         this.poseCaptures = []; // Cache for captured images
+        this.poseCaptureLocked = []; // Preserve imported PNG captures
         this.ikMode = true; // IK mode toggle (false = FK, true = IK)
 
         // Slider values
@@ -4207,7 +4208,7 @@ class PoseStudioWidget {
 
         // Hidden file inputs
         const fileInput = document.createElement("input");
-        fileInput.type = "file"; fileInput.accept = ".json"; fileInput.style.display = "none";
+        fileInput.type = "file"; fileInput.accept = ".json,.png,image/png"; fileInput.style.display = "none";
         fileInput.addEventListener("change", (e) => this.handleFileImport(e));
         this.fileImportInput = fileInput;
         this.container.appendChild(fileInput);
@@ -5066,6 +5067,9 @@ class PoseStudioWidget {
         if (this.poseCaptures && this.poseCaptures.length > idx) {
             this.poseCaptures.splice(idx, 1);
         }
+        if (this.poseCaptureLocked && this.poseCaptureLocked.length > idx) {
+            this.poseCaptureLocked.splice(idx, 1);
+        }
 
         this.poses.splice(idx, 1);
 
@@ -5234,6 +5238,27 @@ class PoseStudioWidget {
         const file = e.target.files[0];
         if (!file) return;
 
+        if (file.type === "image/png" || /\.png$/i.test(file.name)) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                if (!this.poseCaptures) this.poseCaptures = [];
+                if (!this.poseCaptureLocked) this.poseCaptureLocked = [];
+                if (!this.lightingPrompts) this.lightingPrompts = [];
+                while (this.poseCaptures.length < this.poses.length) this.poseCaptures.push(null);
+                while (this.poseCaptureLocked.length < this.poses.length) this.poseCaptureLocked.push(false);
+                while (this.lightingPrompts.length < this.poses.length) this.lightingPrompts.push("");
+
+                this.poseCaptures[this.activeTab] = event.target.result;
+                this.poseCaptureLocked[this.activeTab] = true;
+                this.lightingPrompts[this.activeTab] = "";
+                this.syncToNode(false);
+                this.showMessage("PNG imported and pose extracted to active tab.");
+                e.target.value = '';
+            };
+            reader.readAsDataURL(file);
+            return;
+        }
+
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
@@ -5244,6 +5269,7 @@ class PoseStudioWidget {
                     const newPoses = data.poses || (Array.isArray(data) ? data : null);
                     if (newPoses && Array.isArray(newPoses)) {
                         this.poses = newPoses;
+                        this.poseCaptureLocked = new Array(this.poses.length).fill(false);
                         this.activeTab = 0;
                         this.updateTabs();
                         // Load first pose
@@ -5259,6 +5285,7 @@ class PoseStudioWidget {
                     const poseData = data.bones ? data : data;
 
                     this.poses[this.activeTab] = poseData;
+                    this.poseCaptureLocked[this.activeTab] = false;
                     if (this.viewer && this.viewer.initialized) {
                         this.viewer.setPose(poseData);
                         this.updateRotationSliders();
@@ -6541,11 +6568,14 @@ class PoseStudioWidget {
 
         // Cache Handling
         if (!this.poseCaptures) this.poseCaptures = [];
+        if (!this.poseCaptureLocked) this.poseCaptureLocked = [];
         if (!this.lightingPrompts) this.lightingPrompts = [];
 
         // Ensure size
         while (this.poseCaptures.length < this.poses.length) this.poseCaptures.push(null);
         while (this.poseCaptures.length > this.poses.length) this.poseCaptures.pop();
+        while (this.poseCaptureLocked.length < this.poses.length) this.poseCaptureLocked.push(false);
+        while (this.poseCaptureLocked.length > this.poses.length) this.poseCaptureLocked.pop();
 
         while (this.lightingPrompts.length < this.poses.length) this.lightingPrompts.push("");
         while (this.lightingPrompts.length > this.poses.length) this.lightingPrompts.pop();
@@ -6596,12 +6626,15 @@ class PoseStudioWidget {
                             this.viewer.updateLights(debugParams.lights);
                         }
 
-                        // Capture
-                        this.poseCaptures[i] = this.viewer.capture(w, h, debugParams.zoom, debugParams.bgColor, debugParams.offsetX, debugParams.offsetY);
+                        if (!(this.poseCaptureLocked[i] && this.poseCaptures[i])) {
+                            // Capture
+                            this.poseCaptures[i] = this.viewer.capture(w, h, debugParams.zoom, debugParams.bgColor, debugParams.offsetX, debugParams.offsetY);
+                            this.poseCaptureLocked[i] = false;
 
-                        // Prompt
-                        const promptLights = isOriginalLighting ? [{ type: 'ambient', color: '#ffffff', intensity: 1.0 }] : (debugParams.lights || originalLights);
-                        this.lightingPrompts[i] = this.generatePromptFromLights(promptLights);
+                            // Prompt
+                            const promptLights = isOriginalLighting ? [{ type: 'ambient', color: '#ffffff', intensity: 1.0 }] : (debugParams.lights || originalLights);
+                            this.lightingPrompts[i] = this.generatePromptFromLights(promptLights);
+                        }
                     } else {
                         // Normal mode
                         this.viewer.setPose(this.poses[i]);
@@ -6616,8 +6649,11 @@ class PoseStudioWidget {
                             this.viewer.updateLights(this.lightParams);
                         }
 
-                        this.poseCaptures[i] = this.viewer.capture(w, h, z, bg, oX, oY);
-                        this.lightingPrompts[i] = this.generatePromptFromLights(isOriginalLighting ? [] : this.lightParams);
+                        if (!(this.poseCaptureLocked[i] && this.poseCaptures[i])) {
+                            this.poseCaptures[i] = this.viewer.capture(w, h, z, bg, oX, oY);
+                            this.poseCaptureLocked[i] = false;
+                            this.lightingPrompts[i] = this.generatePromptFromLights(isOriginalLighting ? [] : this.lightParams);
+                        }
                     }
                 }
 
@@ -6647,10 +6683,13 @@ class PoseStudioWidget {
                         this.viewer.updateLights(debugParams.lights);
                     }
 
-                    this.poseCaptures[this.activeTab] = this.viewer.capture(w, h, debugParams.zoom, debugParams.bgColor, debugParams.offsetX, debugParams.offsetY);
+                    if (!(this.poseCaptureLocked[this.activeTab] && this.poseCaptures[this.activeTab])) {
+                        this.poseCaptures[this.activeTab] = this.viewer.capture(w, h, debugParams.zoom, debugParams.bgColor, debugParams.offsetX, debugParams.offsetY);
+                        this.poseCaptureLocked[this.activeTab] = false;
 
-                    const promptLights = isOriginalLighting ? [{ type: 'ambient', color: '#ffffff', intensity: 1.0 }] : (debugParams.lights || userLights);
-                    this.lightingPrompts[this.activeTab] = this.generatePromptFromLights(promptLights);
+                        const promptLights = isOriginalLighting ? [{ type: 'ambient', color: '#ffffff', intensity: 1.0 }] : (debugParams.lights || userLights);
+                        this.lightingPrompts[this.activeTab] = this.generatePromptFromLights(promptLights);
+                    }
 
                     this.viewer.updateLights(userLights);
                     this.viewer.setPose(this.poses[this.activeTab]);
@@ -6670,8 +6709,11 @@ class PoseStudioWidget {
                         this.viewer.updateLights(this.lightParams);
                     }
 
-                    this.poseCaptures[this.activeTab] = this.viewer.capture(w, h, z, bg, oX, oY);
-                    this.lightingPrompts[this.activeTab] = this.generatePromptFromLights(isOriginalLighting ? [] : this.lightParams);
+                    if (!(this.poseCaptureLocked[this.activeTab] && this.poseCaptures[this.activeTab])) {
+                        this.poseCaptures[this.activeTab] = this.viewer.capture(w, h, z, bg, oX, oY);
+                        this.poseCaptureLocked[this.activeTab] = false;
+                        this.lightingPrompts[this.activeTab] = this.generatePromptFromLights(isOriginalLighting ? [] : this.lightParams);
+                    }
 
                     if (isOriginalLighting) {
                         this.viewer.updateLights(userLights);
@@ -6692,6 +6734,7 @@ class PoseStudioWidget {
             lights: this.lightParams,
             activeTab: this.activeTab,
             captured_images: this.poseCaptures,
+            pose_capture_locked: this.poseCaptureLocked,
             lighting_prompts: this.lightingPrompts,
             background_url: this.exportParams.background_url || null
         };
@@ -6803,6 +6846,11 @@ class PoseStudioWidget {
 
             if (data.captured_images && Array.isArray(data.captured_images)) {
                 this.poseCaptures = data.captured_images;
+            }
+            if (data.pose_capture_locked && Array.isArray(data.pose_capture_locked)) {
+                this.poseCaptureLocked = data.pose_capture_locked;
+            } else {
+                this.poseCaptureLocked = new Array(this.poses.length).fill(false);
             }
 
             this.updateTabs();
